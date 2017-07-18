@@ -7,135 +7,43 @@
 " linter: The linter dictionary for the job.
 " buffer: The buffer number for the job.
 " output: The array of lines for the output of the job.
-let s:job_info_map = {}
+if !has_key(s:, 'job_info_map')
+    let s:job_info_map = {}
+endif
 
-function! ale#engine#ParseVim8ProcessID(job_string) abort
-    return matchstr(a:job_string, '\d\+') + 0
-endfunction
+let s:executable_cache_map = {}
 
-function! s:GetJobID(job) abort
-    if has('nvim')
-        "In NeoVim, job values are just IDs.
-        return a:job
+" Check if files are executable, and if they are, remember that they are
+" for subsequent calls. We'll keep checking until programs can be executed.
+function! s:IsExecutable(executable) abort
+    if has_key(s:executable_cache_map, a:executable)
+        return 1
     endif
 
-    " For Vim 8, the job is a different variable type, and we can parse the
-    " process ID from the string.
-    return ale#engine#ParseVim8ProcessID(string(a:job))
+    if executable(a:executable)
+        let s:executable_cache_map[a:executable] = 1
+
+        return 1
+    endif
+
+    return  0
 endfunction
 
 function! ale#engine#InitBufferInfo(buffer) abort
     if !has_key(g:ale_buffer_info, a:buffer)
         " job_list will hold the list of jobs
         " loclist holds the loclist items after all jobs have completed.
-        " new_loclist holds loclist items while jobs are being run.
         " temporary_file_list holds temporary files to be cleaned up
         " temporary_directory_list holds temporary directories to be cleaned up
         " history holds a list of previously run commands for this buffer
         let g:ale_buffer_info[a:buffer] = {
         \   'job_list': [],
         \   'loclist': [],
-        \   'new_loclist': [],
         \   'temporary_file_list': [],
         \   'temporary_directory_list': [],
         \   'history': [],
+        \   'open_lsp_documents': [],
         \}
-    endif
-endfunction
-
-" A map from timer IDs to Vim 8 jobs, for tracking jobs that need to be killed
-" with SIGKILL if they don't terminate right away.
-let s:job_kill_timers = {}
-
-function! s:KillHandler(timer) abort
-    call job_stop(remove(s:job_kill_timers, a:timer), 'kill')
-endfunction
-
-function! ale#engine#ClearJob(job) abort
-    let l:job_id = s:GetJobID(a:job)
-    let l:linter = s:job_info_map[l:job_id].linter
-
-    if has('nvim')
-        call jobstop(a:job)
-    else
-        " We must close the channel for reading the buffer if it is open
-        " when stopping a job. Otherwise, we will get errors in the status line.
-        if ch_status(job_getchannel(a:job)) ==# 'open'
-            call ch_close_in(job_getchannel(a:job))
-        endif
-
-        " Ask nicely for the job to stop.
-        call job_stop(a:job)
-
-        " If a job doesn't stop immediately, queue a timer which will
-        " send SIGKILL to the job, if it's alive by the time the timer ticks.
-        if job_status(a:job) ==# 'run'
-            let s:job_kill_timers[timer_start(100, function('s:KillHandler'))] = a:job
-        endif
-    endif
-
-    if has_key(s:job_info_map, l:job_id)
-        call remove(s:job_info_map, l:job_id)
-    endif
-endfunction
-
-function! s:StopPreviousJobs(buffer, linter) abort
-    if !has_key(g:ale_buffer_info, a:buffer)
-        " Do nothing if we didn't run anything for the buffer.
-        return
-    endif
-
-    let l:new_job_list = []
-
-    for l:job in g:ale_buffer_info[a:buffer].job_list
-        let l:job_id = s:GetJobID(l:job)
-
-        if has_key(s:job_info_map, l:job_id)
-        \&& s:job_info_map[l:job_id].linter.name ==# a:linter.name
-            " Stop jobs which match the buffer and linter.
-            call ale#engine#ClearJob(l:job)
-        else
-            " Keep other jobs in the list.
-            call add(l:new_job_list, l:job)
-        endif
-    endfor
-
-    " Update the list, removing the previously run job.
-    let g:ale_buffer_info[a:buffer].job_list = l:new_job_list
-endfunction
-
-function! s:GatherOutputVim(channel, data) abort
-    let l:job_id = s:GetJobID(ch_getjob(a:channel))
-
-    if !has_key(s:job_info_map, l:job_id)
-        return
-    endif
-
-    call add(s:job_info_map[l:job_id].output, a:data)
-endfunction
-
-function! s:GatherOutputNeoVim(job, data, event) abort
-    let l:job_id = s:GetJobID(a:job)
-
-    if !has_key(s:job_info_map, l:job_id)
-        return
-    endif
-
-    " Join the lines passed to ale, because Neovim splits them up.
-    " a:data is a list of strings, where every item is a new line, except the
-    " first one, which is the continuation of the last item passed last time.
-    call ale#engine#JoinNeovimOutput(s:job_info_map[l:job_id].output, a:data)
-endfunction
-
-function! ale#engine#JoinNeovimOutput(output, data) abort
-    if empty(a:output)
-        call extend(a:output, a:data)
-    else
-        " Extend the previous line, which can be continued.
-        let a:output[-1] .= get(a:data, 0, '')
-
-        " Add the new lines.
-        call extend(a:output, a:data[1:])
     endif
 endfunction
 
@@ -148,6 +56,17 @@ endfunction
 " Same as the above, but manage an entire directory.
 function! ale#engine#ManageDirectory(buffer, directory) abort
     call add(g:ale_buffer_info[a:buffer].temporary_directory_list, a:directory)
+endfunction
+
+" Create a new temporary directory and manage it in one go.
+function! ale#engine#CreateDirectory(buffer) abort
+    let l:temporary_directory = tempname()
+    " Create the temporary directory for the file, unreadable by 'other'
+    " users.
+    call mkdir(l:temporary_directory, '', 0750)
+    call ale#engine#ManageDirectory(a:buffer, l:temporary_directory)
+
+    return l:temporary_directory
 endfunction
 
 function! ale#engine#RemoveManagedFiles(buffer) abort
@@ -179,32 +98,85 @@ function! ale#engine#RemoveManagedFiles(buffer) abort
     let g:ale_buffer_info[a:buffer].temporary_directory_list = []
 endfunction
 
-function! s:HandleExit(job) abort
-    if a:job ==# 'no process'
-        " Stop right away when the job is not valid in Vim 8.
+function! s:GatherOutput(job_id, line) abort
+    if has_key(s:job_info_map, a:job_id)
+        call add(s:job_info_map[a:job_id].output, a:line)
+    endif
+endfunction
+
+function! s:HandleLoclist(linter_name, buffer, loclist) abort
+    " Make some adjustments to the loclists to fix common problems, and also
+    " to set default values for loclist items.
+    let l:linter_loclist = ale#engine#FixLocList(a:buffer, a:linter_name, a:loclist)
+
+    " Remove previous items for this linter.
+    call filter(g:ale_buffer_info[a:buffer].loclist, 'v:val.linter_name !=# a:linter_name')
+    " Add the new items.
+    call extend(g:ale_buffer_info[a:buffer].loclist, l:linter_loclist)
+
+    " Sort the loclist again.
+    " We need a sorted list so we can run a binary search against it
+    " for efficient lookup of the messages in the cursor handler.
+    call sort(g:ale_buffer_info[a:buffer].loclist, 'ale#util#LocItemCompare')
+
+    let l:linting_is_done = empty(g:ale_buffer_info[a:buffer].job_list)
+    \   && !get(g:ale_buffer_info[a:buffer], 'waiting_for_tsserver', 0)
+
+    if l:linting_is_done
+        " Automatically remove all managed temporary files and directories
+        " now that all jobs have completed.
+        call ale#engine#RemoveManagedFiles(a:buffer)
+
+        " Figure out which linters are still enabled, and remove
+        " problems for linters which are no longer enabled.
+        let l:name_map = {}
+
+        for l:linter in ale#linter#Get(getbufvar(a:buffer, '&filetype'))
+            let l:name_map[l:linter.name] = 1
+        endfor
+
+        call filter(
+        \   g:ale_buffer_info[a:buffer].loclist,
+        \   'get(l:name_map, v:val.linter_name)',
+        \)
+    endif
+
+    call ale#engine#SetResults(a:buffer, g:ale_buffer_info[a:buffer].loclist)
+
+    if l:linting_is_done
+        " Call user autocommands. This allows users to hook into ALE's lint cycle.
+        silent doautocmd User ALELint
+    endif
+endfunction
+
+function! s:HandleExit(job_id, exit_code) abort
+    if !has_key(s:job_info_map, a:job_id)
         return
     endif
 
-    let l:job_id = s:GetJobID(a:job)
-
-    if !has_key(s:job_info_map, l:job_id)
-        return
-    endif
-
-    let l:job_info = s:job_info_map[l:job_id]
+    let l:job_info = s:job_info_map[a:job_id]
     let l:linter = l:job_info.linter
     let l:output = l:job_info.output
     let l:buffer = l:job_info.buffer
     let l:next_chain_index = l:job_info.next_chain_index
 
-    " Call the same function for stopping jobs again to clean up the job
-    " which just closed.
-    call s:StopPreviousJobs(l:buffer, l:linter)
+    if g:ale_history_enabled
+        call ale#history#SetExitCode(l:buffer, a:job_id, a:exit_code)
+    endif
+
+    " Remove this job from the list.
+    call ale#job#Stop(a:job_id)
+    call remove(s:job_info_map, a:job_id)
+    call filter(g:ale_buffer_info[l:buffer].job_list, 'v:val !=# a:job_id')
 
     " Stop here if we land in the handle for a job completing if we're in
     " a sandbox.
     if ale#util#InSandbox()
         return
+    endif
+
+    if has('nvim') && !empty(l:output) && empty(l:output[-1])
+        call remove(l:output, -1)
     endif
 
     if l:next_chain_index < len(get(l:linter, 'command_chain', []))
@@ -214,50 +186,59 @@ function! s:HandleExit(job) abort
 
     " Log the output of the command for ALEInfo if we should.
     if g:ale_history_enabled && g:ale_history_log_output
-        call ale#history#RememberOutput(l:buffer, l:job_id, l:output[:])
+        call ale#history#RememberOutput(l:buffer, a:job_id, l:output[:])
     endif
 
-    let l:linter_loclist = ale#util#GetFunction(l:linter.callback)(l:buffer, l:output)
+    let l:loclist = ale#util#GetFunction(l:linter.callback)(l:buffer, l:output)
 
-    " Make some adjustments to the loclists to fix common problems, and also
-    " to set default values for loclist items.
-    let l:linter_loclist = ale#engine#FixLocList(l:buffer, l:linter, l:linter_loclist)
+    call s:HandleLoclist(l:linter.name, l:buffer, l:loclist)
+endfunction
 
-    " Add the loclist items from the linter.
-    call extend(g:ale_buffer_info[l:buffer].new_loclist, l:linter_loclist)
+function! s:HandleLSPResponse(response) abort
+    let l:is_diag_response = get(a:response, 'type', '') ==# 'event'
+    \   && get(a:response, 'event', '') ==# 'semanticDiag'
 
-    if !empty(g:ale_buffer_info[l:buffer].job_list)
-        " Wait for all jobs to complete before doing anything else.
+    if !l:is_diag_response
         return
     endif
 
-    " Automatically remove all managed temporary files and directories
-    " now that all jobs have completed.
-    call ale#engine#RemoveManagedFiles(l:buffer)
+    let l:buffer = bufnr(a:response.body.file)
 
-    " Sort the loclist again.
-    " We need a sorted list so we can run a binary search against it
-    " for efficient lookup of the messages in the cursor handler.
-    call sort(g:ale_buffer_info[l:buffer].new_loclist, 'ale#util#LocItemCompare')
+    let l:info = get(g:ale_buffer_info, l:buffer, {})
 
-    " Now swap the old and new loclists, after we have collected everything
-    " and sorted the list again.
-    let g:ale_buffer_info[l:buffer].loclist = g:ale_buffer_info[l:buffer].new_loclist
-    let g:ale_buffer_info[l:buffer].new_loclist = []
+    if empty(l:info)
+        return
+    endif
 
-    call ale#engine#SetResults(l:buffer, g:ale_buffer_info[l:buffer].loclist)
+    let l:info.waiting_for_tsserver = 0
 
-    " Call user autocommands. This allows users to hook into ALE's lint cycle.
-    silent doautocmd User ALELint
+    let l:loclist = ale#lsp#response#ReadTSServerDiagnostics(a:response)
+
+    call s:HandleLoclist('tsserver', l:buffer, l:loclist)
 endfunction
 
 function! ale#engine#SetResults(buffer, loclist) abort
-    if g:ale_set_quickfix || g:ale_set_loclist
-        call ale#list#SetLists(a:loclist)
-    endif
+    let l:info = get(g:ale_buffer_info, a:buffer, {})
+    let l:job_list = get(l:info, 'job_list', [])
+    let l:waiting_for_tsserver = get(l:info, 'waiting_for_tsserver', 0)
+    let l:linting_is_done = empty(l:job_list) && !l:waiting_for_tsserver
 
+    " Set signs first. This could potentially fix some line numbers.
+    " The List could be sorted again here by SetSigns.
     if g:ale_set_signs
         call ale#sign#SetSigns(a:buffer, a:loclist)
+
+        if l:linting_is_done
+            call ale#sign#RemoveDummySignIfNeeded(a:buffer)
+        endif
+    endif
+
+    if g:ale_set_quickfix || g:ale_set_loclist
+        call ale#list#SetLists(a:buffer, a:loclist)
+
+        if l:linting_is_done
+            call ale#list#CloseWindowIfNeeded(a:buffer)
+        endif
     endif
 
     if exists('*ale#statusline#Update')
@@ -268,39 +249,37 @@ function! ale#engine#SetResults(buffer, loclist) abort
     if g:ale_set_highlights
         call ale#highlight#SetHighlights(a:buffer, a:loclist)
     endif
-endfunction
 
-function! s:SetExitCode(job, exit_code) abort
-    let l:job_id = s:GetJobID(a:job)
-
-    if !has_key(s:job_info_map, l:job_id)
-        return
+    if g:ale_echo_cursor
+        " Try and echo the warning now.
+        " This will only do something meaningful if we're in normal mode.
+        call ale#cursor#EchoCursorWarning()
     endif
-
-    let l:buffer = s:job_info_map[l:job_id].buffer
-
-    call ale#history#SetExitCode(l:buffer, l:job_id, a:exit_code)
 endfunction
 
-function! s:HandleExitNeoVim(job, exit_code, event) abort
-    if g:ale_history_enabled
-        call s:SetExitCode(a:job, a:exit_code)
-    endif
+function! s:RemapItemTypes(type_map, loclist) abort
+    for l:item in a:loclist
+        let l:key = l:item.type
+        \   . (get(l:item, 'sub_type', '') ==# 'style' ? 'S' : '')
+        let l:new_key = get(a:type_map, l:key, '')
 
-    call s:HandleExit(a:job)
+        if l:new_key ==# 'E'
+        \|| l:new_key ==# 'ES'
+        \|| l:new_key ==# 'W'
+        \|| l:new_key ==# 'WS'
+        \|| l:new_key ==# 'I'
+            let l:item.type = l:new_key[0]
+
+            if l:new_key ==# 'ES' || l:new_key ==# 'WS'
+                let l:item.sub_type = 'style'
+            elseif has_key(l:item, 'sub_type')
+                call remove(l:item, 'sub_type')
+            endif
+        endif
+    endfor
 endfunction
 
-function! s:HandleExitVim(channel) abort
-    call s:HandleExit(ch_getjob(a:channel))
-endfunction
-
-" Vim returns the exit status with one callback,
-" and the channel will close later in another callback.
-function! s:HandleExitStatusVim(job, exit_code) abort
-    call s:SetExitCode(a:job, a:exit_code)
-endfunction
-
-function! ale#engine#FixLocList(buffer, linter, loclist) abort
+function! ale#engine#FixLocList(buffer, linter_name, loclist) abort
     let l:new_loclist = []
 
     " Some errors have line numbers beyond the end of the file,
@@ -329,11 +308,28 @@ function! ale#engine#FixLocList(buffer, linter, loclist) abort
         \   'vcol': get(l:old_item, 'vcol', 0),
         \   'type': get(l:old_item, 'type', 'E'),
         \   'nr': get(l:old_item, 'nr', -1),
-        \   'linter_name': a:linter.name,
+        \   'linter_name': a:linter_name,
         \}
 
-        if l:item.lnum == 0
-            " When errors appear at line 0, put them at line 1 instead.
+        if has_key(l:old_item, 'detail')
+            let l:item.detail = l:old_item.detail
+        endif
+
+        " Pass on a end_col key if set, used for highlights.
+        if has_key(l:old_item, 'end_col')
+            let l:item.end_col = str2nr(l:old_item.end_col)
+        endif
+
+        if has_key(l:old_item, 'end_lnum')
+            let l:item.end_lnum = str2nr(l:old_item.end_lnum)
+        endif
+
+        if has_key(l:old_item, 'sub_type')
+            let l:item.sub_type = l:old_item.sub_type
+        endif
+
+        if l:item.lnum < 1
+            " When errors appear before line 1, put them at line 1.
             let l:item.lnum = 1
         elseif l:item.lnum > l:last_line_number
             " When errors go beyond the end of the file, put them at the end.
@@ -343,6 +339,12 @@ function! ale#engine#FixLocList(buffer, linter, loclist) abort
         call add(l:new_loclist, l:item)
     endfor
 
+    let l:type_map = get(ale#Var(a:buffer, 'type_map'), a:linter_name, {})
+
+    if !empty(l:type_map)
+        call s:RemapItemTypes(l:type_map, l:new_loclist)
+    endif
+
     return l:new_loclist
 endfunction
 
@@ -350,52 +352,6 @@ endfunction
 " the string will be replaced with filenames, etc.
 function! ale#engine#EscapeCommandPart(command_part) abort
     return substitute(a:command_part, '%', '%%', 'g')
-endfunction
-
-function! s:TemporaryFilename(buffer) abort
-    let l:filename = fnamemodify(bufname(a:buffer), ':t')
-
-    if empty(l:filename)
-        " If the buffer's filename is empty, create a dummy filename.
-        let l:ft = getbufvar(a:buffer, '&filetype')
-        let l:filename = 'file' . ale#filetypes#GuessExtension(l:ft)
-    endif
-
-    " Create a temporary filename, <temp_dir>/<original_basename>
-    " The file itself will not be created by this function.
-    return tempname() . (has('win32') ? '\' : '/') . l:filename
-endfunction
-
-" Given a command string, replace every...
-" %s -> with the current filename
-" %t -> with the name of an unused file in a temporary directory
-" %% -> with a literal %
-function! ale#engine#FormatCommand(buffer, command) abort
-    let l:temporary_file = ''
-    let l:command = a:command
-
-    " First replace all uses of %%, used for literal percent characters,
-    " with an ugly string.
-    let l:command = substitute(l:command, '%%', '<<PERCENTS>>', 'g')
-
-    " Replace all %s occurences in the string with the name of the current
-    " file.
-    if l:command =~# '%s'
-        let l:filename = fnamemodify(bufname(a:buffer), ':p')
-        let l:command = substitute(l:command, '%s', '\=fnameescape(l:filename)', 'g')
-    endif
-
-    if l:command =~# '%t'
-        " Create a temporary filename, <temp_dir>/<original_basename>
-        " The file itself will not be created by this function.
-        let l:temporary_file = s:TemporaryFilename(a:buffer)
-        let l:command = substitute(l:command, '%t', '\=fnameescape(l:temporary_file)', 'g')
-    endif
-
-    " Finish formatting so %% becomes %.
-    let l:command = substitute(l:command, '<<PERCENTS>>', '%', 'g')
-
-    return [l:temporary_file, l:command]
 endfunction
 
 function! s:CreateTemporaryFileForJob(buffer, temporary_file) abort
@@ -424,15 +380,7 @@ function! s:RunJob(options) abort
     let l:next_chain_index = a:options.next_chain_index
     let l:read_buffer = a:options.read_buffer
 
-    let [l:temporary_file, l:command] = ale#engine#FormatCommand(l:buffer, l:command)
-
-    if l:read_buffer && empty(l:temporary_file)
-        " If we are to send the Vim buffer to a command, we'll do it
-        " in the shell. We'll write out the file to a temporary file,
-        " and then read it back in, in the shell.
-        let l:temporary_file = s:TemporaryFilename(l:buffer)
-        let l:command = l:command . ' < ' . fnameescape(l:temporary_file)
-    endif
+    let [l:temporary_file, l:command] = ale#command#FormatCommand(l:buffer, l:command, l:read_buffer)
 
     if s:CreateTemporaryFileForJob(l:buffer, l:temporary_file)
         " If a temporary filename has been formatted in to the command, then
@@ -440,73 +388,41 @@ function! s:RunJob(options) abort
         let l:read_buffer = 0
     endif
 
-    if has('nvim')
-        if l:output_stream ==# 'stderr'
-            " Read from stderr instead of stdout.
-            let l:job = jobstart(l:command, {
-            \   'on_stderr': function('s:GatherOutputNeoVim'),
-            \   'on_exit': function('s:HandleExitNeoVim'),
-            \})
-        elseif l:output_stream ==# 'both'
-            let l:job = jobstart(l:command, {
-            \   'on_stdout': function('s:GatherOutputNeoVim'),
-            \   'on_stderr': function('s:GatherOutputNeoVim'),
-            \   'on_exit': function('s:HandleExitNeoVim'),
-            \})
-        else
-            let l:job = jobstart(l:command, {
-            \   'on_stdout': function('s:GatherOutputNeoVim'),
-            \   'on_exit': function('s:HandleExitNeoVim'),
-            \})
-        endif
+    let l:command = ale#job#PrepareCommand(l:command)
+    let l:job_options = {
+    \   'mode': 'nl',
+    \   'exit_cb': function('s:HandleExit'),
+    \}
+
+    if l:output_stream ==# 'stderr'
+        let l:job_options.err_cb = function('s:GatherOutput')
+    elseif l:output_stream ==# 'both'
+        let l:job_options.out_cb = function('s:GatherOutput')
+        let l:job_options.err_cb = function('s:GatherOutput')
     else
-        let l:job_options = {
-        \   'in_mode': 'nl',
-        \   'out_mode': 'nl',
-        \   'err_mode': 'nl',
-        \   'close_cb': function('s:HandleExitVim'),
-        \}
+        let l:job_options.out_cb = function('s:GatherOutput')
+    endif
 
-        if g:ale_history_enabled
-            " We only need to capture the exit status if we are going to
-            " save it in the history. Otherwise, we don't care.
-            let l:job_options.exit_cb = function('s:HandleExitStatusVim')
-        endif
+    if get(g:, 'ale_run_synchronously') == 1
+        " Find a unique Job value to use, which will be the same as the ID for
+        " running commands synchronously. This is only for test code.
+        let l:job_id = len(s:job_info_map) + 1
 
-        if l:output_stream ==# 'stderr'
-            " Read from stderr instead of stdout.
-            let l:job_options.err_cb = function('s:GatherOutputVim')
-        elseif l:output_stream ==# 'both'
-            " Read from both streams.
-            let l:job_options.out_cb = function('s:GatherOutputVim')
-            let l:job_options.err_cb = function('s:GatherOutputVim')
-        else
-            let l:job_options.out_cb = function('s:GatherOutputVim')
-        endif
-
-        " The command will be executed in a subshell. This fixes a number of
-        " issues, including reading the PATH variables correctly, %PATHEXT%
-        " expansion on Windows, etc.
-        "
-        " NeoVim handles this issue automatically if the command is a String.
-        let l:command = has('win32')
-        \   ?  'cmd /c ' . l:command
-        \   : split(&shell) + split(&shellcmdflag) + [l:command]
-
-        " Vim 8 will read the stdin from the file's buffer.
-        let l:job = job_start(l:command, l:job_options)
+        while has_key(s:job_info_map, l:job_id)
+            let l:job_id += 1
+        endwhile
+    else
+        let l:job_id = ale#job#Start(l:command, l:job_options)
     endif
 
     let l:status = 'failed'
-    let l:job_id = 0
 
     " Only proceed if the job is being run.
-    if has('nvim') || (l:job !=# 'no process' && job_status(l:job) ==# 'run')
+    if l:job_id
         " Add the job to the list of jobs, so we can track them.
-        call add(g:ale_buffer_info[l:buffer].job_list, l:job)
+        call add(g:ale_buffer_info[l:buffer].job_list, l:job_id)
 
         let l:status = 'started'
-        let l:job_id = s:GetJobID(l:job)
         " Store the ID for the job in the map to read back again.
         let s:job_info_map[l:job_id] = {
         \   'linter': l:linter,
@@ -520,6 +436,17 @@ function! s:RunJob(options) abort
         call ale#history#Add(l:buffer, l:status, l:job_id, l:command)
     else
         let g:ale_buffer_info[l:buffer].history = []
+    endif
+
+    if get(g:, 'ale_run_synchronously') == 1
+        " Run a command synchronously if this test option is set.
+        let s:job_info_map[l:job_id].output = systemlist(
+        \   type(l:command) == type([])
+        \   ?  join(l:command[0:1]) . ' ' . ale#Escape(l:command[2])
+        \   : l:command
+        \)
+
+        call l:job_options.exit_cb(l:job_id, v:shell_error)
     endif
 endfunction
 
@@ -610,10 +537,88 @@ function! s:InvokeChain(buffer, linter, chain_index, input) abort
     endif
 endfunction
 
+function! ale#engine#StopCurrentJobs(buffer, include_lint_file_jobs) abort
+    let l:info = get(g:ale_buffer_info, a:buffer, {})
+    let l:new_job_list = []
+
+    for l:job_id in get(l:info, 'job_list', [])
+        let l:job_info = get(s:job_info_map, l:job_id, {})
+
+        if !empty(l:job_info)
+            if a:include_lint_file_jobs || !l:job_info.linter.lint_file
+                call ale#job#Stop(l:job_id)
+                call remove(s:job_info_map, l:job_id)
+            else
+                call add(l:new_job_list, l:job_id)
+            endif
+        endif
+    endfor
+
+    " Update the List, so it includes only the jobs we still need.
+    let l:info.job_list = l:new_job_list
+    " Ignore current LSP commands.
+    " We should consider cancelling them in future.
+    let l:info.lsp_command_list = []
+endfunction
+
+function! s:CheckWithTSServer(buffer, linter, executable) abort
+    let l:info = g:ale_buffer_info[a:buffer]
+    let l:open_documents = l:info.open_lsp_documents
+    let l:is_open = index(l:open_documents, a:linter.name) >= 0
+
+    let l:command = ale#job#PrepareCommand(a:executable)
+    let l:job_id = ale#lsp#StartProgram(a:executable, l:command, function('s:HandleLSPResponse'))
+
+    if !l:job_id
+        if g:ale_history_enabled
+            call ale#history#Add(a:buffer, 'failed', l:job_id, l:command)
+        endif
+
+        return
+    endif
+
+    if !l:is_open
+        if g:ale_history_enabled
+            call ale#history#Add(a:buffer, 'started', l:job_id, l:command)
+        endif
+
+        call add(l:open_documents, a:linter.name)
+        call ale#lsp#SendMessageToProgram(
+        \   a:executable,
+        \   ale#lsp#tsserver_message#Open(a:buffer),
+        \)
+    endif
+
+    call ale#lsp#SendMessageToProgram(
+    \   a:executable,
+    \   ale#lsp#tsserver_message#Change(a:buffer),
+    \)
+
+    let l:request_id = ale#lsp#SendMessageToProgram(
+    \   a:executable,
+    \   ale#lsp#tsserver_message#Geterr(a:buffer),
+    \)
+
+    if l:request_id != 0
+        let l:info.waiting_for_tsserver = 1
+    endif
+endfunction
+
 function! ale#engine#Invoke(buffer, linter) abort
-    " Stop previous jobs for the same linter.
-    call s:StopPreviousJobs(a:buffer, a:linter)
-    call s:InvokeChain(a:buffer, a:linter, 0, [])
+    if empty(a:linter.lsp) || a:linter.lsp ==# 'tsserver'
+        let l:executable = has_key(a:linter, 'executable_callback')
+        \   ? ale#util#GetFunction(a:linter.executable_callback)(a:buffer)
+        \   : a:linter.executable
+
+        " Run this program if it can be executed.
+        if s:IsExecutable(l:executable)
+            if a:linter.lsp ==# 'tsserver'
+                call s:CheckWithTSServer(a:buffer, a:linter, l:executable)
+            else
+                call s:InvokeChain(a:buffer, a:linter, 0, [])
+            endif
+        endif
+    endif
 endfunction
 
 " Given a buffer number, return the warnings and errors for a given buffer.
@@ -632,7 +637,7 @@ endfunction
 " The time taken will be a very rough approximation, and more time may be
 " permitted than is specified.
 function! ale#engine#WaitForJobs(deadline) abort
-    let l:start_time = system('date +%s%3N') + 0
+    let l:start_time = ale#util#ClockMilliseconds()
 
     if l:start_time == 0
         throw 'Failed to read milliseconds from the clock!'
@@ -645,14 +650,25 @@ function! ale#engine#WaitForJobs(deadline) abort
         call extend(l:job_list, l:info.job_list)
     endfor
 
+    " NeoVim has a built-in API for this, so use that.
+    if has('nvim')
+        let l:nvim_code_list = jobwait(l:job_list, a:deadline)
+
+        if index(l:nvim_code_list, -1) >= 0
+            throw 'Jobs did not complete on time!'
+        endif
+
+        return
+    endif
+
     let l:should_wait_more = 1
 
     while l:should_wait_more
         let l:should_wait_more = 0
 
-        for l:job in l:job_list
-            if job_status(l:job) ==# 'run'
-                let l:now = system('date +%s%3N') + 0
+        for l:job_id in l:job_list
+            if ale#job#IsRunning(l:job_id)
+                let l:now = ale#util#ClockMilliseconds()
 
                 if l:now - l:start_time > a:deadline
                     " Stop waiting after a timeout, so we don't wait forever.
@@ -677,15 +693,19 @@ function! ale#engine#WaitForJobs(deadline) abort
     " for command_chain linters.
     let l:has_new_jobs = 0
 
+    " Check again to see if any jobs are running.
     for l:info in values(g:ale_buffer_info)
-        if !empty(l:info.job_list)
-            let l:has_new_jobs = 1
-        endif
+        for l:job_id in l:info.job_list
+            if ale#job#IsRunning(l:job_id)
+                let l:has_new_jobs = 1
+                break
+            endif
+        endfor
     endfor
 
     if l:has_new_jobs
         " We have to wait more. Offset the timeout by the time taken so far.
-        let l:now = system('date +%s%3N') + 0
+        let l:now = ale#util#ClockMilliseconds()
         let l:new_deadline = a:deadline - (l:now - l:start_time)
 
         if l:new_deadline <= 0

@@ -23,15 +23,9 @@ function! ale_linters#scala#scalac#Handle(buffer, lines) abort
 
         if l:ln + 1 < len(a:lines)
             let l:col = stridx(a:lines[l:ln + 1], '^')
-
-            if l:col == -1
-                let l:col = 0
-            endif
         endif
 
-        " vcol is Needed to indicate that the column is a character.
         call add(l:output, {
-        \   'bufnr': a:buffer,
         \   'lnum': l:match[1] + 0,
         \   'col': l:col + 1,
         \   'text': l:text,

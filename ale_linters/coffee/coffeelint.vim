@@ -2,7 +2,7 @@
 " Description: coffeelint linter for coffeescript files
 
 function! ale_linters#coffee#coffeelint#GetExecutable(buffer) abort
-    return ale#util#ResolveLocalPath(
+    return ale#path#ResolveLocalPath(
     \   a:buffer,
     \   'node_modules/.bin/coffeelint',
     \   'coffeelint'
@@ -21,28 +21,14 @@ function! ale_linters#coffee#coffeelint#Handle(buffer, lines) abort
     " stdin,14,,error,Throwing strings is forbidden
     "
     " Note that we currently ignore lineNumberEnd for multiline errors
-    let l:pattern = 'stdin,\(\d\+\),\(\d*\),\(.\+\),\(.\+\)'
+    let l:pattern = 'stdin,\(\d\+\),\(\d*\),\(.\{-1,}\),\(.\+\)'
     let l:output = []
 
-    for l:line in a:lines
-        let l:match = matchlist(l:line, l:pattern)
-
-        if len(l:match) == 0
-            continue
-        endif
-
-        let l:line = l:match[1] + 0
-        let l:column = 1
-        let l:type = l:match[3] ==# 'error' ? 'E' : 'W'
-        let l:text = l:match[4]
-
-        " vcol is needed to indicate that the column is a character
+    for l:match in ale#util#GetMatches(a:lines, l:pattern)
         call add(l:output, {
-        \   'bufnr': a:buffer,
-        \   'lnum': l:line,
-        \   'col': l:column,
-        \   'text': l:text,
-        \   'type': l:type,
+        \   'lnum': str2nr(l:match[1]),
+        \   'type': l:match[3] ==# 'error' ? 'E' : 'W',
+        \   'text': l:match[4],
         \})
     endfor
 

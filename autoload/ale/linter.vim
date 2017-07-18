@@ -4,7 +4,7 @@
 
 let s:linters = {}
 
-" Default filetype aliaes.
+" Default filetype aliases.
 " The user defined aliases will be merged with this Dictionary.
 let s:default_ale_linter_aliases = {
 \   'Dockerfile': 'dockerfile',
@@ -20,9 +20,13 @@ let s:default_ale_linter_aliases = {
 " No linters are used for plaintext files by default.
 "
 " Only cargo is enabled for Rust by default.
+" rpmlint is disabled by default because it can result in code execution.
 let s:default_ale_linters = {
 \   'csh': ['shell'],
+\   'go': ['gofmt', 'golint', 'go vet'],
+\   'help': [],
 \   'rust': ['cargo'],
+\   'spec': [],
 \   'text': [],
 \   'zsh': ['shell'],
 \}
@@ -47,6 +51,7 @@ function! ale#linter#PreProcess(linter) abort
 
     let l:obj = {
     \   'name': get(a:linter, 'name'),
+    \   'lsp': get(a:linter, 'lsp', ''),
     \   'callback': get(a:linter, 'callback'),
     \}
 
@@ -58,7 +63,27 @@ function! ale#linter#PreProcess(linter) abort
         throw '`callback` must be defined with a callback to accept output'
     endif
 
-    if has_key(a:linter, 'executable_callback')
+    let l:needs_executable = 0
+    let l:needs_address = 0
+    let l:needs_command = 0
+
+    if l:obj.lsp ==# 'tsserver'
+        let l:needs_executable = 1
+    elseif l:obj.lsp ==# 'lsp'
+        let l:needs_address = 1
+    elseif !empty(l:obj.lsp)
+        throw '`lsp` must be either `''lsp''` or `''tsserver''` if defined'
+    else
+        let l:needs_executable = 1
+        let l:needs_command = 1
+    endif
+
+    if !l:needs_executable
+        if has_key(a:linter, 'executable')
+        \|| has_key(a:linter, 'executable_callback')
+            throw '`executable` and `executable_callback` cannot be used when lsp == ''lsp'''
+        endif
+    elseif has_key(a:linter, 'executable_callback')
         let l:obj.executable_callback = a:linter.executable_callback
 
         if !s:IsCallback(l:obj.executable_callback)
@@ -74,7 +99,13 @@ function! ale#linter#PreProcess(linter) abort
         throw 'Either `executable` or `executable_callback` must be defined'
     endif
 
-    if has_key(a:linter, 'command_chain')
+    if !l:needs_command
+        if has_key(a:linter, 'command')
+        \|| has_key(a:linter, 'command_callback')
+        \|| has_key(a:linter, 'command_chain')
+            throw '`command` and `command_callback` and `command_chain` cannot be used when `lsp` is set'
+        endif
+    elseif has_key(a:linter, 'command_chain')
         let l:obj.command_chain = a:linter.command_chain
 
         if type(l:obj.command_chain) != type([])
@@ -134,6 +165,20 @@ function! ale#linter#PreProcess(linter) abort
         \   . 'should be set'
     endif
 
+    if !l:needs_address
+        if has_key(a:linter, 'address_callback')
+            throw '`address_callback` cannot be used when lsp != ''lsp'''
+        endif
+    elseif has_key(a:linter, 'address_callback')
+        let l:obj.address_callback = a:linter.address_callback
+
+        if !s:IsCallback(l:obj.address_callback)
+            throw '`address_callback` must be a callback if defined'
+        endif
+    else
+        throw '`address_callback` must be defined for getting the LSP address'
+    endif
+
     let l:obj.output_stream = get(a:linter, 'output_stream', 'stdout')
 
     if type(l:obj.output_stream) != type('')
@@ -141,11 +186,30 @@ function! ale#linter#PreProcess(linter) abort
         throw "`output_stream` must be 'stdout', 'stderr', or 'both'"
     endif
 
+    " An option indicating that this linter should only be run against the
+    " file on disk.
+    let l:obj.lint_file = get(a:linter, 'lint_file', 0)
+
+    if !s:IsBoolean(l:obj.lint_file)
+        throw '`lint_file` must be `0` or `1`'
+    endif
+
     " An option indicating that the buffer should be read.
-    let l:obj.read_buffer = get(a:linter, 'read_buffer', 1)
+    let l:obj.read_buffer = get(a:linter, 'read_buffer', !l:obj.lint_file)
 
     if !s:IsBoolean(l:obj.read_buffer)
         throw '`read_buffer` must be `0` or `1`'
+    endif
+
+    if l:obj.lint_file && l:obj.read_buffer
+        throw 'Only one of `lint_file` or `read_buffer` can be `1`'
+    endif
+
+    let l:obj.aliases = get(a:linter, 'aliases', [])
+
+    if type(l:obj.aliases) != type([])
+    \|| len(filter(copy(l:obj.aliases), 'type(v:val) != type('''')')) > 0
+        throw '`aliases` must be a List of String values'
     endif
 
     return l:obj
@@ -161,64 +225,77 @@ function! ale#linter#Define(filetype, linter) abort
     call add(s:linters[a:filetype], l:new_linter)
 endfunction
 
-function! ale#linter#GetAll(filetype) abort
-    if a:filetype ==# ''
-        " Empty filetype? Nothing to be done about that.
-        return []
-    endif
+function! ale#linter#GetAll(filetypes) abort
+    let l:combined_linters = []
 
-    if has_key(s:linters, a:filetype)
-        " We already loaded the linter files for this filetype, so stop here.
-        return s:linters[a:filetype]
-    endif
+    for l:filetype in a:filetypes
+        " Load linter defintions from files if we haven't loaded them yet.
+        if !has_key(s:linters, l:filetype)
+            execute 'silent! runtime! ale_linters/' . l:filetype . '/*.vim'
 
-    " Load all linters for a given filetype.
-    execute 'silent! runtime! ale_linters/' . a:filetype . '/*.vim'
+            " Always set an empty List for the loaded linters if we don't find
+            " any. This will prevent us from executing the runtime command
+            " many times, redundantly.
+            if !has_key(s:linters, l:filetype)
+                let s:linters[l:filetype] = []
+            endif
+        endif
 
-    if !has_key(s:linters, a:filetype)
-        " If we couldn't load any linters, let everyone know.
-        let s:linters[a:filetype] = []
-    endif
+        call extend(l:combined_linters, get(s:linters, l:filetype, []))
+    endfor
 
-    return s:linters[a:filetype]
+    return l:combined_linters
+endfunction
+
+function! s:GetAliasedFiletype(original_filetype) abort
+    " Check for aliased filetypes first in a buffer variable,
+    " then the global variable,
+    " then in the default mapping,
+    " otherwise use the original filetype.
+    for l:dict in [
+    \   get(b:, 'ale_linter_aliases', {}),
+    \   g:ale_linter_aliases,
+    \   s:default_ale_linter_aliases,
+    \]
+        if has_key(l:dict, a:original_filetype)
+            return l:dict[a:original_filetype]
+        endif
+    endfor
+
+    return a:original_filetype
 endfunction
 
 function! ale#linter#ResolveFiletype(original_filetype) abort
-    " Try and get an aliased file type either from the user's Dictionary, or
-    " our default Dictionary, otherwise use the filetype as-is.
-    let l:filetype = get(
-    \   g:ale_linter_aliases,
-    \   a:original_filetype,
-    \   get(
-    \       s:default_ale_linter_aliases,
-    \       a:original_filetype,
-    \       a:original_filetype
-    \   )
-    \)
+    let l:filetype = s:GetAliasedFiletype(a:original_filetype)
+
+    if type(l:filetype) != type([])
+        return [l:filetype]
+    endif
 
     return l:filetype
 endfunction
 
+function! s:GetLinterNames(original_filetype) abort
+    for l:dict in [
+    \   get(b:, 'ale_linters', {}),
+    \   g:ale_linters,
+    \   s:default_ale_linters,
+    \]
+        if has_key(l:dict, a:original_filetype)
+            return l:dict[a:original_filetype]
+        endif
+    endfor
+
+    return 'all'
+endfunction
+
 function! ale#linter#Get(original_filetypes) abort
-    let l:combined_linters = []
+    let l:possibly_duplicated_linters = []
 
     " Handle dot-seperated filetypes.
     for l:original_filetype in split(a:original_filetypes, '\.')
         let l:filetype = ale#linter#ResolveFiletype(l:original_filetype)
-
-        " Try and get a list of linters to run, using the original file type,
-        " not the aliased filetype. We have some linters to limit by default,
-        " and users may define their own list of linters to run.
-        let l:linter_names = get(
-        \   g:ale_linters,
-        \   l:original_filetype,
-        \   get(
-        \       s:default_ale_linters,
-        \       l:original_filetype,
-        \       'all'
-        \   )
-        \)
-
+        let l:linter_names = s:GetLinterNames(l:original_filetype)
         let l:all_linters = ale#linter#GetAll(l:filetype)
         let l:filetype_linters = []
 
@@ -227,14 +304,33 @@ function! ale#linter#Get(original_filetypes) abort
         elseif type(l:linter_names) == type([])
             " Select only the linters we or the user has specified.
             for l:linter in l:all_linters
-                if index(l:linter_names, l:linter.name) >= 0
-                    call add(l:filetype_linters, l:linter)
-                endif
+                let l:name_list = [l:linter.name] + l:linter.aliases
+
+                for l:name in l:name_list
+                    if index(l:linter_names, l:name) >= 0
+                        call add(l:filetype_linters, l:linter)
+                        break
+                    endif
+                endfor
             endfor
         endif
 
-        call extend(l:combined_linters, l:filetype_linters)
+        call extend(l:possibly_duplicated_linters, l:filetype_linters)
     endfor
 
-    return l:combined_linters
+    let l:name_list = []
+    let l:combined_linters = []
+
+    " Make sure we override linters so we don't get two with the same name,
+    " like 'eslint' for both 'javascript' and 'typescript'
+    "
+    " Note that the reverse calls here modify the List variables.
+    for l:linter in reverse(l:possibly_duplicated_linters)
+        if index(l:name_list, l:linter.name) < 0
+            call add(l:name_list, l:linter.name)
+            call add(l:combined_linters, l:linter)
+        endif
+    endfor
+
+    return reverse(l:combined_linters)
 endfunction
