@@ -55,8 +55,8 @@ endfunction
 call ale#linter#Define('fortran', {
 \   'name': 'gcc',
 \   'output_stream': 'stderr',
-\   'executable': 'gcc',
-\   'command': 'gcc -S -x f95 -fsyntax-only -ffree-form '
+\   'executable': '/opt/local/bin/gcc-mp-6',
+\   'command': '/opt/local/bin/gcc-mp-6 -S -x f95 -fsyntax-only -ffree-form '
 \       . g:ale_fortran_gcc_options
 \       . ' -',
 \   'callback': 'ale_linters#fortran#gcc#Handle',
