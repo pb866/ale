@@ -55,7 +55,13 @@ let g:ale_buffer_info = {}
 
 " This option prevents ALE autocmd commands from being run for particular
 " filetypes which can cause issues.
-let g:ale_filetype_blacklist = ['nerdtree', 'unite', 'tags']
+let g:ale_filetype_blacklist = [
+\   'dirvish',
+\   'nerdtree',
+\   'qf',
+\   'tags',
+\   'unite',
+\]
 
 " This Dictionary configures which linters are enabled for which languages.
 let g:ale_linters = get(g:, 'ale_linters', {})
@@ -167,7 +173,7 @@ let g:ale_max_buffer_history_size = get(g:, 'ale_max_buffer_history_size', 20)
 let g:ale_history_enabled = get(g:, 'ale_history_enabled', 1)
 
 " A flag for storing the full output of commands in the history.
-let g:ale_history_log_output = get(g:, 'ale_history_log_output', 0)
+let g:ale_history_log_output = get(g:, 'ale_history_log_output', 1)
 
 " A dictionary mapping regular expression patterns to arbitrary buffer
 " variables to be set. Useful for configuration ALE based on filename
@@ -180,6 +186,11 @@ call ale#Set('maximum_file_size', 0)
 
 " Remapping of linter problems.
 call ale#Set('type_map', {})
+
+" Enable automatic completion with LSP servers and tsserver
+call ale#Set('completion_enabled', 0)
+call ale#Set('completion_delay', 300)
+call ale#Set('completion_max_suggestions', 20)
 
 function! ALEInitAuGroups() abort
     " This value used to be a Boolean as a Number, and is now a String.
@@ -234,7 +245,7 @@ function! ALEInitAuGroups() abort
     augroup ALERunOnSaveGroup
         autocmd!
         if (g:ale_enabled && g:ale_lint_on_save) || g:ale_fix_on_save
-            autocmd BufWrite * call ale#events#SaveEvent()
+            autocmd BufWritePost * call ale#events#SaveEvent()
         endif
     augroup END
 
@@ -288,10 +299,9 @@ function! s:ALEToggle() abort
         " Make sure the buffer number is a number, not a string,
         " otherwise things can go wrong.
         for l:buffer in map(keys(g:ale_buffer_info), 'str2nr(v:val)')
-            " Stop jobs and delete stored buffer data
-            call ale#cleanup#Buffer(l:buffer)
-            " Clear signs, loclist, quicklist
-            call ale#engine#SetResults(l:buffer, [])
+            " Stop all jobs and clear the results for everything, and delete
+            " all of the data we stored for the buffer.
+            call ale#engine#Cleanup(l:buffer)
         endfor
 
         " Remove highlights for the current buffer now.
@@ -311,6 +321,10 @@ call ALEInitAuGroups()
 
 if g:ale_set_balloons
     call ale#balloon#Enable()
+endif
+
+if g:ale_completion_enabled
+    call ale#completion#Enable()
 endif
 
 " Define commands for moving through warnings and errors.
@@ -359,7 +373,7 @@ nnoremap <silent> <Plug>(ale_fix) :ALEFix<Return>
 augroup ALECleanupGroup
     autocmd!
     " Clean up buffers automatically when they are unloaded.
-    autocmd BufUnload * call ale#cleanup#Buffer(expand('<abuf>'))
+    autocmd BufUnload * call ale#engine#Cleanup(str2nr(expand('<abuf>')))
 augroup END
 
 " Backwards Compatibility

@@ -75,16 +75,16 @@ name. That seems to be the fairest way to arrange this table.
 | Elixir | [credo](https://github.com/rrrene/credo), [dogma](https://github.com/lpil/dogma) |
 | Elm | [elm-make](https://github.com/elm-lang/elm-make) |
 | Erb | [erb](https://github.com/jeremyevans/erubi) |
-| Erlang | [erlc](http://erlang.org/doc/man/erlc.html) |
+| Erlang | [erlc](http://erlang.org/doc/man/erlc.html), [SyntaxErl](https://github.com/ten0s/syntaxerl) |
 | Fortran | [gcc](https://gcc.gnu.org/) |
 | FusionScript | [fusion-lint](https://github.com/RyanSquared/fusionscript) |
 | Go | [gofmt -e](https://golang.org/cmd/gofmt/), [go vet](https://golang.org/cmd/vet/), [golint](https://godoc.org/github.com/golang/lint), [gometalinter](https://github.com/alecthomas/gometalinter), [go build](https://golang.org/cmd/go/), [gosimple](https://github.com/dominikh/go-tools/tree/master/cmd/gosimple), [staticcheck](https://github.com/dominikh/go-tools/tree/master/cmd/staticcheck) |
 | Haml | [haml-lint](https://github.com/brigade/haml-lint)
 | Handlebars | [ember-template-lint](https://github.com/rwjblue/ember-template-lint) |
-| Haskell | [ghc](https://www.haskell.org/ghc/), [ghc-mod](https://github.com/DanielG/ghc-mod), [hlint](https://hackage.haskell.org/package/hlint), [hdevtools](https://hackage.haskell.org/package/hdevtools) |
+| Haskell | [ghc](https://www.haskell.org/ghc/), [stack-ghc](https://haskellstack.org/), [stack-build](https://haskellstack.org/), [ghc-mod](https://github.com/DanielG/ghc-mod), [stack-ghc-mod](https://github.com/DanielG/ghc-mod), [hlint](https://hackage.haskell.org/package/hlint), [hdevtools](https://hackage.haskell.org/package/hdevtools) |
 | HTML | [HTMLHint](http://htmlhint.com/), [proselint](http://proselint.com/), [tidy](http://www.html-tidy.org/) |
 | Java | [checkstyle](http://checkstyle.sourceforge.net), [javac](http://www.oracle.com/technetwork/java/javase/downloads/index.html) |
-| JavaScript | [eslint](http://eslint.org/), [jscs](http://jscs.info/), [jshint](http://jshint.com/), [flow](https://flowtype.org/), [standard](http://standardjs.com/), [prettier](https://github.com/prettier/prettier) (and `prettier-eslint`), [xo](https://github.com/sindresorhus/xo)
+| JavaScript | [eslint](http://eslint.org/), [jscs](http://jscs.info/), [jshint](http://jshint.com/), [flow](https://flowtype.org/), [standard](http://standardjs.com/), [prettier](https://github.com/prettier/prettier) (and `prettier-eslint`, `prettier-standard`), [xo](https://github.com/sindresorhus/xo)
 | JSON | [jsonlint](http://zaa.ch/jsonlint/) |
 | Kotlin | [kotlinc](https://kotlinlang.org), [ktlint](https://ktlint.github.io) see `:help ale-integration-kotlin` for configuration instructions
 | LaTeX | [chktex](http://www.nongnu.org/chktex/), [lacheck](https://www.ctan.org/pkg/lacheck), [proselint](http://proselint.com/) |
@@ -98,21 +98,23 @@ name. That seems to be the fairest way to arrange this table.
 | Objective-C++ | [clang](http://clang.llvm.org/) |
 | OCaml | [merlin](https://github.com/the-lambda-church/merlin) see `:help ale-integration-ocaml-merlin` for configuration instructions
 | Perl | [perl -c](https://perl.org/), [perl-critic](https://metacpan.org/pod/Perl::Critic) |
-| PHP | [hack](http://hacklang.org/), [php -l](https://secure.php.net/), [phpcs](https://github.com/squizlabs/PHP_CodeSniffer), [phpmd](https://phpmd.org) |
+| PHP | [hack](http://hacklang.org/), [php -l](https://secure.php.net/), [phpcs](https://github.com/squizlabs/PHP_CodeSniffer), [phpmd](https://phpmd.org), [phpstan](https://github.com/phpstan/phpstan) |
 | Pod | [proselint](http://proselint.com/)|
 | Pug | [pug-lint](https://github.com/pugjs/pug-lint) |
 | Puppet | [puppet](https://puppet.com), [puppet-lint](https://puppet-lint.com) |
 | Python | [autopep8](https://github.com/hhatto/autopep8), [flake8](http://flake8.pycqa.org/en/latest/), [isort](https://github.com/timothycrosley/isort), [mypy](http://mypy-lang.org/), [pylint](https://www.pylint.org/), [yapf](https://github.com/google/yapf) |
+| R | [lintr](https://github.com/jimhester/lintr) |
 | ReasonML | [merlin](https://github.com/the-lambda-church/merlin) see `:help ale-integration-reason-merlin` for configuration instructions
 | reStructuredText | [proselint](http://proselint.com/)|
 | RPM spec | [rpmlint](https://github.com/rpm-software-management/rpmlint) (disabled by default; see `:help ale-integration-spec`) |
-| Ruby | [brakeman](http://brakemanscanner.org/), [reek](https://github.com/troessner/reek), [rubocop](https://github.com/bbatsov/rubocop), [ruby](https://www.ruby-lang.org) |
+| Ruby | [brakeman](http://brakemanscanner.org/), [rails_best_practices](https://github.com/flyerhzm/rails_best_practices), [reek](https://github.com/troessner/reek), [rubocop](https://github.com/bbatsov/rubocop), [ruby](https://www.ruby-lang.org) |
 | Rust | [rustc](https://www.rust-lang.org/), cargo (see `:help ale-integration-rust` for configuration instructions) |
 | SASS | [sass-lint](https://www.npmjs.com/package/sass-lint), [stylelint](https://github.com/stylelint/stylelint) |
 | SCSS | [sass-lint](https://www.npmjs.com/package/sass-lint), [scss-lint](https://github.com/brigade/scss-lint), [stylelint](https://github.com/stylelint/stylelint) |
-| Scala | [scalac](http://scala-lang.org) |
+| Scala | [scalac](http://scala-lang.org), [scalastyle](http://www.scalastyle.org) |
 | Slim | [slim-lint](https://github.com/sds/slim-lint)
 | SML | [smlnj](http://www.smlnj.org/) |
+| Stylus | [stylelint](https://github.com/stylelint/stylelint) |
 | SQL | [sqlint](https://github.com/purcell/sqlint) |
 | Swift | [swiftlint](https://swift.org/) |
 | Texinfo | [proselint](http://proselint.com/)|
@@ -123,7 +125,7 @@ name. That seems to be the fairest way to arrange this table.
 | Vim help^ | [proselint](http://proselint.com/)|
 | XHTML | [proselint](http://proselint.com/)|
 | XML | [xmllint](http://xmlsoft.org/xmllint.html/)|
-| YAML | [yamllint](https://yamllint.readthedocs.io/) |
+| YAML | [swaglint](https://github.com/byCedric/swaglint), [yamllint](https://yamllint.readthedocs.io/) |
 
 * *^ No linters for text or Vim help filetypes are enabled by default.*
 

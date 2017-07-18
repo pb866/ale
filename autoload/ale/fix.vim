@@ -77,14 +77,14 @@ function! ale#fix#ApplyFixes(buffer, output) abort
             echoerr 'The file was changed before fixing finished'
             return
         endif
-
-        let l:data.done = 1
     endif
 
     if !bufexists(a:buffer)
         " Remove the buffer data when it doesn't exist.
         call remove(g:ale_fix_buffer_data, a:buffer)
     endif
+
+    let l:data.done = 1
 
     " We can only change the lines of a buffer which is currently open,
     " so try and apply the fixes to the current buffer.
@@ -102,9 +102,15 @@ function! s:HandleExit(job_id, exit_code) abort
         let l:job_info.output = readfile(l:job_info.file_to_read)
     endif
 
+    " Use the output of the job for changing the file if it isn't empty,
+    " otherwise skip this job and use the input from before.
+    let l:input = !empty(l:job_info.output)
+    \   ? l:job_info.output
+    \   : l:job_info.input
+
     call s:RunFixer({
     \   'buffer': l:job_info.buffer,
-    \   'input': l:job_info.output,
+    \   'input': l:input,
     \   'callback_list': l:job_info.callback_list,
     \   'callback_index': l:job_info.callback_index + 1,
     \})
@@ -172,6 +178,7 @@ function! s:RunJob(options) abort
 
     let l:job_info = {
     \   'buffer': l:buffer,
+    \   'input': l:input,
     \   'output': [],
     \   'callback_list': a:options.callback_list,
     \   'callback_index': a:options.callback_index,

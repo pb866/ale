@@ -5,7 +5,6 @@ Before:
     cd ../ruby_fixtures/valid_rails_app/app/models
 
     runtime ale_linters/ruby/brakeman.vim
-    call setbufvar(0, 'ruby_brakeman_rails_root_cached', '')
 
 After:
     " Switch back to whatever directory it was that we started on.
@@ -73,3 +72,9 @@ Execute(The brakeman handler should parse JSON correctly):
   \    ']',
   \  '}'
   \  ])
+
+Execute(The brakeman handler should parse JSON correctly when there is no output from brakeman):
+  AssertEqual
+  \ [],
+  \ ale_linters#ruby#brakeman#Handle(347, [
+  \ ])
