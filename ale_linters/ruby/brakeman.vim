@@ -1,34 +1,26 @@
 " Author: Eddie Lebow https://github.com/elebow
 " Description: Brakeman, a static analyzer for Rails security
 
-let g:ale_ruby_brakeman_options =
-\   get(g:, 'ale_ruby_brakeman_options', '')
+call ale#Set('ruby_brakeman_options', '')
+call ale#Set('ruby_brakeman_executable', 'brakeman')
+call ale#Set('ruby_brakeman_options', '')
 
 function! ale_linters#ruby#brakeman#Handle(buffer, lines) abort
-    if len(a:lines) == 0
-        return []
-    endif
-
-    let l:result = json_decode(join(a:lines, ''))
-
     let l:output = []
+    let l:json = ale#util#FuzzyJSONDecode(a:lines, {})
+    let l:sep = has('win32') ? '\' : '/'
+    " Brakeman always outputs paths relative to the Rails app root
+    let l:rails_root = ale#ruby#FindRailsRoot(a:buffer)
 
-    for l:warning in l:result.warnings
-        " Brakeman always outputs paths relative to the Rails app root
-        let l:rails_root = ale#ruby#FindRailsRoot(a:buffer)
-        let l:warning_file = l:rails_root . '/' . l:warning.file
-
-        if !ale#path#IsBufferPath(a:buffer, l:warning_file)
-          continue
-        endif
-
+    for l:warning in get(l:json, 'warnings', [])
         let l:text = l:warning.warning_type . ' ' . l:warning.message . ' (' . l:warning.confidence . ')'
         let l:line = l:warning.line != v:null ? l:warning.line : 1
 
         call add(l:output, {
-        \    'lnum': l:line,
-        \    'type': 'W',
-        \    'text': l:text,
+        \   'filename': l:rails_root . l:sep .  l:warning.file,
+        \   'lnum': l:line,
+        \   'type': 'W',
+        \   'text': l:text,
         \})
     endfor
 
@@ -38,18 +30,21 @@ endfunction
 function! ale_linters#ruby#brakeman#GetCommand(buffer) abort
     let l:rails_root = ale#ruby#FindRailsRoot(a:buffer)
 
-    if l:rails_root ==? ''
+    if l:rails_root is? ''
         return ''
     endif
 
-    return 'brakeman -f json -q '
+    let l:executable = ale#Var(a:buffer, 'ruby_brakeman_executable')
+
+    return ale#handlers#ruby#EscapeExecutable(l:executable, 'brakeman')
+    \    . ' -f json -q '
     \    . ale#Var(a:buffer, 'ruby_brakeman_options')
     \    . ' -p ' . ale#Escape(l:rails_root)
 endfunction
 
 call ale#linter#Define('ruby', {
 \    'name': 'brakeman',
-\    'executable': 'brakeman',
+\    'executable_callback': ale#VarFunc('ruby_brakeman_executable'),
 \    'command_callback': 'ale_linters#ruby#brakeman#GetCommand',
 \    'callback': 'ale_linters#ruby#brakeman#Handle',
 \    'lint_file': 1,

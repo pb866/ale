@@ -2,7 +2,7 @@
 " Description: Fixing Python files with yapf.
 
 call ale#Set('python_yapf_executable', 'yapf')
-call ale#Set('python_yapf_use_global', 0)
+call ale#Set('python_yapf_use_global', get(g:, 'ale_use_global_executables', 0))
 
 function! ale#fixers#yapf#Fix(buffer) abort
     let l:executable = ale#python#FindExecutable(
@@ -17,10 +17,10 @@ function! ale#fixers#yapf#Fix(buffer) abort
 
     let l:config = ale#path#FindNearestFile(a:buffer, '.style.yapf')
     let l:config_options = !empty(l:config)
-    \   ? ' --style ' . ale#Escape(l:config)
+    \   ? ' --no-local-style --style ' . ale#Escape(l:config)
     \   : ''
 
     return {
-    \   'command': ale#Escape(l:executable) . ' --no-local-style' . l:config_options,
+    \   'command': ale#Escape(l:executable) . l:config_options,
     \}
 endfunction

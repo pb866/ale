@@ -13,16 +13,18 @@ let s:classpath_sep = has('unix') ? ':' : ';'
 
 function! ale_linters#kotlin#kotlinc#GetImportPaths(buffer) abort
     " exec maven/gradle only if classpath is not set
-    if ale#Var(a:buffer, 'kotlin_kotlinc_classpath') !=# ''
+    if ale#Var(a:buffer, 'kotlin_kotlinc_classpath') isnot# ''
         return ''
     else
         let l:pom_path = ale#path#FindNearestFile(a:buffer, 'pom.xml')
+
         if !empty(l:pom_path) && executable('mvn')
             return ale#path#CdString(fnamemodify(l:pom_path, ':h'))
                         \ . 'mvn dependency:build-classpath'
         endif
 
         let l:classpath_command = ale#gradle#BuildClasspathCommand(a:buffer)
+
         if !empty(l:classpath_command)
             return l:classpath_command
         endif
@@ -70,7 +72,7 @@ function! ale_linters#kotlin#kotlinc#GetCommand(buffer, import_paths) abort
     endif
 
     " We only get here if not using module or the module file not readable
-    if ale#Var(a:buffer, 'kotlin_kotlinc_classpath') !=# ''
+    if ale#Var(a:buffer, 'kotlin_kotlinc_classpath') isnot# ''
         let l:kotlinc_opts .= ' -cp ' . ale#Var(a:buffer, 'kotlin_kotlinc_classpath')
     else
         " get classpath from maven/gradle
@@ -78,12 +80,13 @@ function! ale_linters#kotlin#kotlinc#GetCommand(buffer, import_paths) abort
     endif
 
     let l:fname = ''
-    if ale#Var(a:buffer, 'kotlin_kotlinc_sourcepath') !=# ''
+
+    if ale#Var(a:buffer, 'kotlin_kotlinc_sourcepath') isnot# ''
         let l:fname .= expand(ale#Var(a:buffer, 'kotlin_kotlinc_sourcepath'), 1) . ' '
     else
         " Find the src directory for files in this project.
-
         let l:project_root = ale#gradle#FindProjectRoot(a:buffer)
+
         if !empty(l:project_root)
             let l:src_dir = l:project_root
         else
@@ -93,6 +96,7 @@ function! ale_linters#kotlin#kotlinc#GetCommand(buffer, import_paths) abort
 
         let l:fname .= expand(l:src_dir, 1) . ' '
     endif
+
     let l:fname .= ale#Escape(expand('#' . a:buffer . ':p'))
     let l:command .= l:kotlinc_opts . ' ' . l:fname
 
@@ -121,10 +125,11 @@ function! ale_linters#kotlin#kotlinc#Handle(buffer, lines) abort
         let l:curbuf_abspath = expand('#' . a:buffer . ':p')
 
         " Skip if file is not loaded
-        if l:buf_abspath !=# l:curbuf_abspath
+        if l:buf_abspath isnot# l:curbuf_abspath
             continue
         endif
-        let l:type_marker_str = l:type ==# 'warning' ? 'W' : 'E'
+
+        let l:type_marker_str = l:type is# 'warning' ? 'W' : 'E'
 
         call add(l:output, {
         \   'lnum': l:line,
@@ -145,7 +150,7 @@ function! ale_linters#kotlin#kotlinc#Handle(buffer, lines) abort
         let l:type = l:match[1]
         let l:text = l:match[2]
 
-        let l:type_marker_str = l:type ==# 'warning' || l:type ==# 'info' ? 'W' : 'E'
+        let l:type_marker_str = l:type is# 'warning' || l:type is# 'info' ? 'W' : 'E'
 
         call add(l:output, {
         \   'lnum': 1,

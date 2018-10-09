@@ -1,4 +1,7 @@
 Before:
+  Save g:ale_buffer_info
+
+  let g:ale_buffer_info = {}
   let g:ale_run_synchronously = 1
 
   let g:command = 'echo test'
@@ -35,12 +38,14 @@ Before:
 
   call ale#linter#Define('foobar', {
   \ 'name': 'testlinter',
-  \ 'executable': 'echo',
+  \ 'executable': has('win32') ? 'cmd' : 'echo',
   \ 'callback': 'TestCallback',
   \ 'command_callback': 'TestCommandCallback',
   \})
 
 After:
+  Restore
+
   if !empty(g:preserved_directory)
     call delete(g:preserved_directory, 'rf')
   endif
@@ -100,7 +105,9 @@ Execute(ALE should create and delete directories for ale#engine#CreateDirectory(
 
   " We should get the correct file permissions.
   " We want to ensure that the directory is not readable by 'other'
-  AssertEqual 'rwxr-x---', getfperm(b:dir)
+  if has('unix')
+    AssertEqual 'rwxr-x---', getfperm(b:dir)
+  endif
 
   " The two directories shouldn't be the same.
   AssertNotEqual b:dir2, b:dir
@@ -109,3 +116,17 @@ Execute(ALE should create and delete directories for ale#engine#CreateDirectory(
 
   Assert !isdirectory(b:dir), 'The directory was not deleted'
   Assert !isdirectory(b:dir2), 'The second directory was not deleted'
+
+Execute(ale#engine#ManageFile should add the file even if the buffer info hasn't be set yet):
+  let g:ale_buffer_info = {}
+  call ale#engine#ManageFile(bufnr(''), '/foo/bar')
+  AssertEqual
+  \ ['/foo/bar'],
+  \ g:ale_buffer_info[bufnr('')].temporary_file_list
+
+Execute(ale#engine#ManageDirectory should add the directory even if the buffer info hasn't be set yet):
+  let g:ale_buffer_info = {}
+  call ale#engine#ManageDirectory(bufnr(''), '/foo/bar')
+  AssertEqual
+  \ ['/foo/bar'],
+  \ g:ale_buffer_info[bufnr('')].temporary_directory_list

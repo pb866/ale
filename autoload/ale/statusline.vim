@@ -22,19 +22,20 @@ function! ale#statusline#Update(buffer, loclist) abort
         return
     endif
 
+    let l:loclist = filter(copy(a:loclist), 'v:val.bufnr == a:buffer')
     let l:count = s:CreateCountDict()
-    let l:count.total = len(a:loclist)
+    let l:count.total = len(l:loclist)
 
-    for l:entry in a:loclist
-        if l:entry.type ==# 'W'
-            if get(l:entry, 'sub_type', '') ==# 'style'
+    for l:entry in l:loclist
+        if l:entry.type is# 'W'
+            if get(l:entry, 'sub_type', '') is# 'style'
                 let l:count.style_warning += 1
             else
                 let l:count.warning += 1
             endif
-        elseif l:entry.type ==# 'I'
+        elseif l:entry.type is# 'I'
             let l:count.info += 1
-        elseif get(l:entry, 'sub_type', '') ==# 'style'
+        elseif get(l:entry, 'sub_type', '') is# 'style'
             let l:count.style_error += 1
         else
             let l:count.error += 1
@@ -66,41 +67,4 @@ endfunction
 function! ale#statusline#Count(buffer) abort
     " The Dictionary is copied here before exposing it to other plugins.
     return copy(s:GetCounts(a:buffer))
-endfunction
-
-" This is the historical format setting which could be configured before.
-function! s:StatusForListFormat() abort
-    let [l:error_format, l:warning_format, l:no_errors] = g:ale_statusline_format
-    let l:counts = s:GetCounts(bufnr(''))
-
-    " Build strings based on user formatting preferences.
-    let l:errors = l:counts[0] ? printf(l:error_format, l:counts[0]) : ''
-    let l:warnings = l:counts[1] ? printf(l:warning_format, l:counts[1]) : ''
-
-    " Different formats based on the combination of errors and warnings.
-    if empty(l:errors) && empty(l:warnings)
-        let l:res = l:no_errors
-    elseif !empty(l:errors) && !empty(l:warnings)
-        let l:res = printf('%s %s', l:errors, l:warnings)
-    else
-        let l:res = empty(l:errors) ? l:warnings : l:errors
-    endif
-
-    return l:res
-endfunction
-
-" Returns a formatted string that can be integrated in the statusline.
-"
-" This function is deprecated, and should not be used. Use the airline plugin
-" instead, or write your own status function with ale#statusline#Count()
-function! ale#statusline#Status() abort
-    if !exists('g:ale_statusline_format')
-        return 'OK'
-    endif
-
-    if type(g:ale_statusline_format) == type([])
-        return s:StatusForListFormat()
-    endif
-
-    return ''
 endfunction

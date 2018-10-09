@@ -6,14 +6,15 @@
 
 call ale#Set('haskell_stack_build_options', '--fast')
 
-function ale_linters#haskell#stack_build#GetCommand(buffer) abort
+function! ale_linters#haskell#stack_build#GetCommand(buffer) abort
     let l:flags = ale#Var(a:buffer, 'haskell_stack_build_options')
 
     return 'stack build ' . l:flags
 endfunction
 
 call ale#linter#Define('haskell', {
-\   'name': 'stack-build',
+\   'name': 'stack_build',
+\   'aliases': ['stack-build'],
 \   'output_stream': 'stderr',
 \   'executable': 'stack',
 \   'command_callback': 'ale_linters#haskell#stack_build#GetCommand',

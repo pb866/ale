@@ -12,14 +12,14 @@
 "
 " This function should be run in a Vader Before: block.
 function! ale#test#SetDirectory(docker_path) abort
-    if a:docker_path[:len('/testplugin/') - 1] !=# '/testplugin/'
+    if a:docker_path[:len('/testplugin/') - 1] isnot# '/testplugin/'
         throw 'docker_path must start with /testplugin/!'
     endif
 
     " Try to switch directory, which will fail when running tests directly,
     " and not through the Docker image.
     silent! execute 'cd ' . fnameescape(a:docker_path)
-    let g:dir = getcwd()
+    let g:dir = getcwd() " no-custom-checks
 endfunction
 
 " When g:dir is defined, switch back to the directory we saved, and then
@@ -43,12 +43,35 @@ function! ale#test#SetFilename(path) abort
     let l:dir = get(g:, 'dir', '')
 
     if empty(l:dir)
-        let l:dir = getcwd()
+        let l:dir = getcwd() " no-custom-checks
     endif
 
     let l:full_path = ale#path#IsAbsolute(a:path)
     \   ? a:path
     \   : l:dir . '/' . a:path
 
-    silent noautocmd execute 'file ' . fnameescape(ale#path#Simplify(l:full_path))
+    silent! noautocmd execute 'file ' . fnameescape(ale#path#Simplify(l:full_path))
+endfunction
+
+function! s:RemoveModule(results) abort
+    for l:item in a:results
+      if has_key(l:item, 'module')
+        call remove(l:item, 'module')
+      endif
+    endfor
+endfunction
+
+" Return loclist data without the module string, only in newer Vim versions.
+function! ale#test#GetLoclistWithoutModule() abort
+    let l:results = getloclist(0)
+    call s:RemoveModule(l:results)
+
+    return l:results
+endfunction
+
+function! ale#test#GetQflistWithoutModule() abort
+    let l:results = getqflist()
+    call s:RemoveModule(l:results)
+
+    return l:results
 endfunction
